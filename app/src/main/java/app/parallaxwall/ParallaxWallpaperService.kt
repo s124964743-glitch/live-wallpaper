@@ -1,5 +1,6 @@
 package app.parallaxwall
 
+import android.app.KeyguardManager
 import android.content.Context
 import android.content.SharedPreferences
 import android.graphics.Canvas
@@ -62,6 +63,27 @@ class ParallaxWallpaperService : WallpaperService() {
         private var player: MediaPlayer? = null
         private var playerReady = false
         private var swFallback = false
+
+        // 影片走 OpenGL（才能疊時鐘）；GL 初始化失敗就退回 MediaPlayer 直出（無時鐘）
+        private var glv: GlVideo? = null
+        private var glFailed = false
+
+        // 鎖定畫面時鐘
+        private val kg = svc.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+        private val clockPainter = ClockPainter()
+        private var showClock = false
+        private val clockTick = Runnable {
+            if (!destroyed && visible) {
+                val before = showClock
+                refreshClock()
+                if (mode == Mode.VIDEO) {
+                    if (showClock || before) pushGl()
+                } else if (showClock || before) {
+                    kick()
+                }
+                scheduleClock()
+            }
+        }
         private var animFx = 0.5f
         private var animFy = 0.5f
 
@@ -131,7 +153,7 @@ class ParallaxWallpaperService : WallpaperService() {
             store.unregister(this)
             if (sensorOn) sm.unregisterListener(this)
             sensorOn = false
-            releasePlayer()
+            releaseVideo()
             exec.shutdownNow()
             scene?.recycle()
             scene = null
@@ -152,7 +174,7 @@ class ParallaxWallpaperService : WallpaperService() {
         }
 
         override fun onSurfaceDestroyed(holder: SurfaceHolder) {
-            releasePlayer()
+            releaseVideo()
             if (mode == Mode.VIDEO) mode = Mode.NONE
             super.onSurfaceDestroyed(holder)
         }
@@ -170,8 +192,12 @@ class ParallaxWallpaperService : WallpaperService() {
                     } catch (_: Exception) {
                     }
                 }
+                refreshClock()
+                pushGl()
+                scheduleClock()
                 kick()
             } else {
+                main.removeCallbacks(clockTick)
                 try {
                     val p = player
                     if (p != null && p.isPlaying) p.pause()
@@ -201,9 +227,35 @@ class ParallaxWallpaperService : WallpaperService() {
                     st = store.settings()
                     applyVolume()
                     updateSensor()
+                    refreshClock()
+                    pushGl()
+                    scheduleClock()
                     kick()
                 }
             }
+        }
+
+        // ───────────── 時鐘 ─────────────
+
+        /** 只在鎖定畫面（keyguard 鎖住）時顯示；解鎖回到桌面就不畫。 */
+        private fun refreshClock() {
+            showClock = st.clockOn && try {
+                kg.isKeyguardLocked
+            } catch (_: Exception) {
+                false
+            }
+        }
+
+        private fun scheduleClock() {
+            main.removeCallbacks(clockTick)
+            if (!destroyed && visible && st.clockOn) {
+                main.postDelayed(clockTick, 1005L - System.currentTimeMillis() % 1000L)
+            }
+        }
+
+        private fun pushGl() {
+            glv?.setClock(showClock, st.clockY, st.clockSize)
+            glv?.setDim(st.dim)
         }
 
         private fun maybeRotate() {
@@ -223,7 +275,7 @@ class ParallaxWallpaperService : WallpaperService() {
             if (destroyed) return
             generation++
             val gen = generation
-            releasePlayer()
+            releaseVideo()
             anim?.let {
                 try {
                     it.stop()
@@ -309,6 +361,66 @@ class ParallaxWallpaperService : WallpaperService() {
         // ───────────── 影片 ─────────────
 
         private fun startVideo(file: File) {
+            if (glFailed) {
+                startVideoDirect(file)
+                return
+            }
+            val gen = generation
+            val g = GlVideo(
+                surfaceHolder.surface, surfW, surfH, animFx, animFy,
+                onReady = { s ->
+                    main.post {
+                        if (!destroyed && gen == generation && glv != null) attachPlayer(file, s)
+                    }
+                },
+                onFail = {
+                    main.post {
+                        if (!destroyed && gen == generation) {
+                            glFailed = true
+                            releaseVideo()
+                            startVideoDirect(file)
+                        }
+                    }
+                }
+            )
+            glv = g
+            mode = Mode.VIDEO
+            g.start()
+        }
+
+        /** GL 就緒後建立播放器，輸出到 SurfaceTexture。 */
+        private fun attachPlayer(file: File, surface: android.view.Surface) {
+            try {
+                val mp = MediaPlayer()
+                mp.setDataSource(file.absolutePath)
+                mp.setSurface(surface)
+                mp.isLooping = true
+                val v = if (st.muteVideo) 0f else 1f
+                mp.setVolume(v, v)
+                mp.setOnVideoSizeChangedListener { _, w, h -> glv?.setVideoSize(w, h) }
+                mp.setOnPreparedListener { p ->
+                    playerReady = true
+                    if (visible) {
+                        try {
+                            p.start()
+                        } catch (_: Exception) {
+                        }
+                    }
+                }
+                mp.setOnErrorListener { _, _, _ -> true }
+                playerReady = false
+                player = mp
+                mp.prepareAsync()
+                pushGl()
+            } catch (e: Exception) {
+                glFailed = true
+                releaseVideo()
+                startVideoDirect(file)
+            }
+        }
+
+        /** 後備：MediaPlayer 直接輸出到桌布畫面（沒有時鐘、暗化）。 */
+        private fun startVideoDirect(file: File) {
             try {
                 val mp = MediaPlayer()
                 mp.setDataSource(file.absolutePath)
@@ -332,10 +444,17 @@ class ParallaxWallpaperService : WallpaperService() {
                 mode = Mode.VIDEO
                 mp.prepareAsync()
             } catch (e: Exception) {
-                releasePlayer()
+                releaseVideo()
                 mode = Mode.NONE
                 kick()
             }
+        }
+
+        /** 先停播放器、再收 GL（順序不能反，否則播放器會寫入已釋放的 Surface）。 */
+        private fun releaseVideo() {
+            releasePlayer()
+            glv?.release()
+            glv = null
         }
 
         private fun applyVolume() {
@@ -478,6 +597,7 @@ class ParallaxWallpaperService : WallpaperService() {
             }
             if (mode == Mode.STILL || mode == Mode.ANIM) drawLight(c, ex, ey)
             if (st.dim > 0f) c.drawColor(Color.argb((st.dim * 200f).toInt(), 0, 0, 0))
+            if (showClock) clockPainter.draw(c, w, st.clockY * surfH, st.clockSize)
         }
 
         private fun drawStill(c: Canvas, ex: Float, ey: Float, amp: Float, dep: Float) {

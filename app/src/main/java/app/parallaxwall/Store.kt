@@ -28,6 +28,9 @@ data class Settings(
     val reverseDir: Boolean = false,
     val muteVideo: Boolean = true,
     val rotateMin: Int = 0,       // 輪播間隔（分鐘），0 = 關閉
+    val clockOn: Boolean = true,  // 鎖定畫面時鐘
+    val clockY: Float = 0.865f,   // 時鐘垂直位置（佔螢幕高度比例，預設在「指紋或上滑解鎖」上方）
+    val clockSize: Float = 1.0f,
 )
 
 class Store(ctx: Context) {
@@ -54,6 +57,9 @@ class Store(ctx: Context) {
             reverseDir = sp.getBoolean("reverse", d.reverseDir),
             muteVideo = sp.getBoolean("mute", d.muteVideo),
             rotateMin = sp.getInt("rotate", d.rotateMin),
+            clockOn = sp.getBoolean("clockOn", d.clockOn),
+            clockY = sp.getFloat("clockY", d.clockY),
+            clockSize = sp.getFloat("clockSize", d.clockSize),
         )
     }
 
@@ -69,6 +75,9 @@ class Store(ctx: Context) {
             .putBoolean("reverse", s.reverseDir)
             .putBoolean("mute", s.muteVideo)
             .putInt("rotate", s.rotateMin)
+            .putBoolean("clockOn", s.clockOn)
+            .putFloat("clockY", s.clockY)
+            .putFloat("clockSize", s.clockSize)
             .apply()
     }
 

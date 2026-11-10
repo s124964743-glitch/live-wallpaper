@@ -282,6 +282,21 @@ fun Home() {
         }
 
         Card {
+            Text("鎖定畫面時鐘", fontWeight = FontWeight.SemiBold)
+            SwitchRow("顯示駭客任務風格時鐘", st.clockOn) { update(st.copy(clockOn = it)) }
+            LabeledSlider("垂直位置（預設在「指紋或上滑解鎖」上方）", st.clockY, 0.5f..0.95f) {
+                update(st.copy(clockY = it))
+            }
+            LabeledSlider("字體大小", st.clockSize, 0.6f..1.4f) { update(st.copy(clockSize = it)) }
+            Text(
+                "只在鎖定畫面顯示，解鎖回桌面就會隱藏。系統自己的時鐘無法由 App 移除，" +
+                    "請到手機系統設定把鎖定畫面時鐘改成小時鐘（路徑依 ROG UI 版本而異）。",
+                fontSize = 12.sp,
+                color = Color(0xFFB0B8C8)
+            )
+        }
+
+        Card {
             Text("影片與輪播", fontWeight = FontWeight.SemiBold)
             SwitchRow("影片靜音", st.muteVideo) { update(st.copy(muteVideo = it)) }
             Text("素材輪播（亮屏時，超過間隔就換下一個）", fontSize = 13.sp, color = Color(0xFFB0B8C8))
@@ -323,13 +338,18 @@ private fun Card(content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun LabeledSlider(label: String, value: Float, onChange: (Float) -> Unit) {
+private fun LabeledSlider(
+    label: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float> = 0f..1f,
+    onChange: (Float) -> Unit
+) {
     Column {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(label, fontSize = 13.sp)
             Text("${(value * 100).roundToInt()}%", fontSize = 13.sp, color = Accent)
         }
-        Slider(value = value, onValueChange = onChange)
+        Slider(value = value, onValueChange = onChange, valueRange = range)
     }
 }
 

@@ -283,7 +283,7 @@ fun Home() {
 
         Card {
             Text("鎖定畫面時鐘", fontWeight = FontWeight.SemiBold)
-            SwitchRow("顯示駭客任務風格時鐘", st.clockOn) { update(st.copy(clockOn = it)) }
+            SwitchRow("顯示鐘點戰風格時鐘（年 - 月 - 日 - 星期 - 時 - 分 - 秒）", st.clockOn) { update(st.copy(clockOn = it)) }
             LabeledSlider("垂直位置（預設在「指紋或上滑解鎖」上方）", st.clockY, 0.5f..0.95f) {
                 update(st.copy(clockY = it))
             }

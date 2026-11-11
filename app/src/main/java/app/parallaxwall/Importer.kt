@@ -15,7 +15,7 @@ import kotlin.math.roundToInt
 /** 把使用者選的圖片/影片複製進 App 私有資料夾（之後不依賴外部 URI 權限），並產生縮圖。 */
 object Importer {
 
-    fun ingest(ctx: Context, uri: Uri): Item {
+    fun ingest(ctx: Context, uri: Uri, slot: String = Store.HOME): Item {
         val app = ctx.applicationContext
         val store = Store(app)
         val d = Sniffer.detect(app, uri)
@@ -71,7 +71,7 @@ object Importer {
             }
 
             val item = Item(id, displayName(app, uri), d.kind.name, d.ext, 0.5f, 0.5f, w, h)
-            store.add(item)
+            store.add(item, slot)
             return item
         } catch (e: Exception) {
             dest.delete()

@@ -125,16 +125,30 @@ class Store(ctx: Context) {
         return arr.toString()
     }
 
-    fun currentId(): String? = sp.getString("current", null)
+    private fun curKey(slot: String) = if (slot == LOCK) "currentLock" else "current"
 
-    fun setCurrent(id: String) {
-        sp.edit().putString("current", id).apply()
+    /** 該畫面實際使用的素材。鎖定畫面沒有自己指定時，跟隨主畫面。 */
+    fun currentId(slot: String = HOME): String? {
+        val own = sp.getString(curKey(slot), null)
+        return if (own != null || slot != LOCK) own else sp.getString(curKey(HOME), null)
     }
 
-    fun add(item: Item) {
+    /** 該畫面自己指定的素材（不含跟隨）。 */
+    fun ownId(slot: String): String? = sp.getString(curKey(slot), null)
+
+    fun setCurrent(id: String, slot: String = HOME) {
+        sp.edit().putString(curKey(slot), id).apply()
+    }
+
+    /** 讓鎖定畫面改回跟隨主畫面。 */
+    fun clearOwn(slot: String) {
+        sp.edit().remove(curKey(slot)).apply()
+    }
+
+    fun add(item: Item, slot: String = HOME) {
         sp.edit()
             .putString("items", toJson(items() + item))
-            .putString("current", item.id)
+            .putString(curKey(slot), item.id)
             .apply()
     }
 
@@ -145,8 +159,11 @@ class Store(ctx: Context) {
         thumbOf(target).delete()
         val rest = list.filter { it.id != id }
         val ed = sp.edit().putString("items", toJson(rest))
-        if (currentId() == id) {
-            if (rest.isEmpty()) ed.remove("current") else ed.putString("current", rest.first().id)
+        for (slot in listOf(HOME, LOCK)) {
+            if (ownId(slot) == id) {
+                if (rest.isEmpty() || slot == LOCK) ed.remove(curKey(slot))
+                else ed.putString(curKey(slot), rest.first().id)
+            }
         }
         ed.apply()
     }
@@ -156,13 +173,20 @@ class Store(ctx: Context) {
         sp.edit().putString("items", toJson(list)).apply()
     }
 
-    fun lastRotate(): Long = sp.getLong("lastRotate", 0L)
+    private fun rotKey(slot: String) = if (slot == LOCK) "lastRotateLock" else "lastRotate"
 
-    fun markRotated() {
-        sp.edit().putLong("lastRotate", System.currentTimeMillis()).apply()
+    fun lastRotate(slot: String = HOME): Long = sp.getLong(rotKey(slot), 0L)
+
+    fun markRotated(slot: String = HOME) {
+        sp.edit().putLong(rotKey(slot), System.currentTimeMillis()).apply()
     }
 
     fun fileOf(item: Item): File = File(dir, "${item.id}.${item.ext}")
 
     fun thumbOf(item: Item): File = File(dir, "${item.id}.thumb.jpg")
+
+    companion object {
+        const val HOME = "home"
+        const val LOCK = "lock"
+    }
 }

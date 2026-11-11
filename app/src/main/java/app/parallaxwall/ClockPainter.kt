@@ -8,7 +8,7 @@ import java.util.Calendar
 
 /**
  * 《鐘點戰》手臂時鐘風格：螢光綠的分段式數字，多層半透明描邊疊出光暈。
- * 格式：2026 - 11 - 11 - 三 - 10 - 15 - 26（年 - 月 - 日 - 星期 - 時 - 分 - 秒）。
+ * 格式：2026 • 11 • 11 • 三 • 10 • 15 • 26（年 • 月 • 日 • 星期 • 時 • 分 • 秒）。
  *
  * 光暈不用 setShadowLayer / BlurMaskFilter：硬體加速畫布（lockHardwareCanvas）
  * 不支援非文字的陰影，所以改用由寬到窄的多層描邊，軟硬體畫布結果一致。
@@ -39,6 +39,7 @@ class ClockPainter {
         textAlign = Paint.Align.CENTER
     }
     private val path = Path()
+    private val dotPath = Path()
 
     // 7 段：a 上、b 右上、c 右下、d 下、e 左下、f 左上、g 中
     private val digitSegs = intArrayOf(
@@ -70,8 +71,8 @@ class ClockPainter {
 
         // 以「數字寬 d」為單位排版
         val gapIn = 0.34f      // 同組數字之間
-        val dashW = 0.50f      // 分隔短橫線長度
-        val gapDash = 0.62f    // 短橫線兩側留白
+        val dashW = 0.30f      // 分隔圓點「•」所佔寬度
+        val gapDash = 0.50f    // 圓點兩側各留一個半形空格的寬度
         val weekW = 1.15f      // 星期字寬
         var units = 0f
         for ((i, g) in groups.withIndex()) {
@@ -89,6 +90,7 @@ class ClockPainter {
 
         // 一次建好所有分段的路徑，再用各光暈層重複描邊
         path.reset()
+        dotPath.reset()
         val weekX = floatArrayOf(0f)
         for ((i, g) in groups.withIndex()) {
             if (i == 3) {
@@ -102,8 +104,10 @@ class ClockPainter {
             }
             if (i < groups.size - 1) {
                 x += d * gapDash
-                path.moveTo(x, top + h / 2f)
-                path.lineTo(x + d * dashW, top + h / 2f)
+                // 圓點 = 長度幾乎為零、圓頭的線
+                val dotX = x + d * dashW / 2f
+                dotPath.moveTo(dotX, top + h / 2f)
+                dotPath.lineTo(dotX + 0.01f, top + h / 2f)
                 x += d * dashW + d * gapDash
             }
         }
@@ -115,6 +119,10 @@ class ClockPainter {
             segPaint.color = l.color
             segPaint.strokeWidth = t * l.widthMul
             c.drawPath(path, segPaint)
+
+            // 圓點比數字線條粗一點，光暈範圍與數字相近
+            segPaint.strokeWidth = t * (l.widthMul + 0.7f)
+            c.drawPath(dotPath, segPaint)
 
             glyphPaint.color = l.color
             glyphPaint.strokeWidth = t * l.widthMul * 0.55f
@@ -130,6 +138,13 @@ class ClockPainter {
         val ym = y0 + h / 2f
         val yb = y0 + h - t / 2f
         val g = t * 0.55f // 段與段之間的縫
+
+        if (n == 1) {
+            // 「1」置中成一條直線，不然會貼在格子右側，讓前後間距看起來不一致
+            p.moveTo(x0 + d / 2f, yt)
+            p.lineTo(x0 + d / 2f, yb)
+            return
+        }
 
         if (m and 1 != 0) { p.moveTo(xl + g, yt); p.lineTo(xr - g, yt) }          // a
         if (m and 2 != 0) { p.moveTo(xr, yt + g); p.lineTo(xr, ym - g) }          // b

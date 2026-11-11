@@ -5,6 +5,7 @@ import android.content.ComponentName
 import android.content.Intent
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -109,26 +110,41 @@ fun Home() {
     val ctx = LocalContext.current
     val store = remember { Store(ctx) }
     var library by remember { mutableStateOf(store.items()) }
-    var currentId by remember { mutableStateOf(store.currentId()) }
+    // 目前正在編輯哪個畫面的素材（主畫面 / 鎖定畫面）
+    var slot by remember { mutableStateOf(Store.HOME) }
+    var currentId by remember { mutableStateOf(store.currentId(Store.HOME)) }
     var st by remember { mutableStateOf(store.settings()) }
     var busy by remember { mutableStateOf(false) }
     var msg by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
     val tick = MainActivity.resumeTick.intValue
-    val active = remember(tick) {
+    val homeActive = remember(tick) {
         try {
             WallpaperManager.getInstance(ctx).wallpaperInfo?.packageName == ctx.packageName
         } catch (e: Exception) {
             false
         }
     }
+    // 鎖定畫面是否已套用本 App：Android 14 以上才能查；查不到就回傳 null（不顯示狀態）
+    val lockActive: Boolean? = remember(tick) {
+        if (Build.VERSION.SDK_INT >= 34) {
+            try {
+                WallpaperManager.getInstance(ctx).getWallpaperInfo(WallpaperManager.FLAG_LOCK)
+                    ?.packageName == ctx.packageName
+            } catch (e: Throwable) {
+                null
+            }
+        } else null
+    }
+    val active = if (slot == Store.LOCK) lockActive == true else homeActive
 
     val current = library.firstOrNull { it.id == currentId } ?: library.firstOrNull()
+    val screenName = if (slot == Store.LOCK) "鎖定畫面" else "主畫面"
 
     fun refresh() {
         library = store.items()
-        currentId = store.currentId()
+        currentId = store.currentId(slot)
     }
 
     fun update(n: Settings) {
@@ -144,7 +160,7 @@ fun Home() {
             val errs = mutableListOf<String>()
             for (u in uris) {
                 try {
-                    withContext(Dispatchers.IO) { Importer.ingest(ctx.applicationContext, u) }
+                    withContext(Dispatchers.IO) { Importer.ingest(ctx.applicationContext, u, slot) }
                     ok++
                 } catch (e: Exception) {
                     errs.add(e.message ?: "匯入失敗")
@@ -164,9 +180,12 @@ fun Home() {
     }
 
     fun applyWallpaper() {
+        // 主畫面與鎖定畫面是兩個獨立的桌布項目，系統才允許分別套用
+        val service = if (slot == Store.LOCK) LockWallpaperService::class.java
+        else ParallaxWallpaperService::class.java
         val i = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).putExtra(
             WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,
-            ComponentName(ctx, ParallaxWallpaperService::class.java)
+            ComponentName(ctx, service)
         )
         try {
             ctx.startActivity(i)
@@ -189,11 +208,33 @@ fun Home() {
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Text("立體動態桌布", fontSize = 26.sp, fontWeight = FontWeight.Bold)
+        Text("要編輯哪個畫面的素材？", fontWeight = FontWeight.SemiBold)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(
+                selected = slot == Store.HOME,
+                onClick = { slot = Store.HOME; currentId = store.currentId(Store.HOME) },
+                label = { Text(if (homeActive) "主畫面 ●" else "主畫面") }
+            )
+            FilterChip(
+                selected = slot == Store.LOCK,
+                onClick = { slot = Store.LOCK; currentId = store.currentId(Store.LOCK) },
+                label = { Text(if (lockActive == true) "鎖定畫面 ●" else "鎖定畫面") }
+            )
+        }
         Text(
-            if (active) "● 已啟用為目前桌布" else "○ 尚未套用：匯入素材後按「設為動態桌布」",
+            if (active) "● $screenName 已套用本 App"
+            else "○ $screenName 尚未套用：選好素材後按下方「設為${screenName}桌布」",
             color = if (active) Accent else Color(0xFFB0B8C8),
             fontSize = 13.sp
         )
+        if (slot == Store.LOCK) {
+            val own = store.ownId(Store.LOCK) != null
+            Text(
+                if (own) "鎖定畫面使用自己的素材。" else "鎖定畫面目前跟隨主畫面的素材；在素材庫點選或匯入新素材，就會改用獨立素材。",
+                fontSize = 12.sp,
+                color = Color(0xFFB0B8C8)
+            )
+        }
 
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             FocusPreview(
@@ -228,7 +269,21 @@ fun Home() {
                     onClick = { applyWallpaper() },
                     enabled = library.isNotEmpty(),
                     modifier = Modifier.fillMaxWidth()
-                ) { Text(if (active) "重新套用" else "設為動態桌布") }
+                ) { Text(if (active) "重新套用到$screenName" else "設為${screenName}桌布") }
+                Text(
+                    "系統跳出確認畫面時，請選「$screenName」。",
+                    fontSize = 11.sp,
+                    color = Color(0xFFB0B8C8)
+                )
+                if (slot == Store.LOCK && store.ownId(Store.LOCK) != null) {
+                    OutlinedButton(
+                        onClick = {
+                            store.clearOwn(Store.LOCK)
+                            refresh()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("改回跟隨主畫面") }
+                }
                 OutlinedButton(
                     onClick = {
                         current?.let {
@@ -262,7 +317,7 @@ fun Home() {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(library, key = { it.id }) { it2 ->
                     Thumb(store, it2, it2.id == current?.id) {
-                        store.setCurrent(it2.id)
+                        store.setCurrent(it2.id, slot)
                         refresh()
                     }
                 }
@@ -283,7 +338,7 @@ fun Home() {
 
         Card {
             Text("鎖定畫面時鐘", fontWeight = FontWeight.SemiBold)
-            SwitchRow("顯示鐘點戰風格時鐘（年 - 月 - 日 - 星期 - 時 - 分 - 秒）", st.clockOn) { update(st.copy(clockOn = it)) }
+            SwitchRow("顯示鐘點戰風格時鐘（年 • 月 • 日 • 星期 • 時 • 分 • 秒）", st.clockOn) { update(st.copy(clockOn = it)) }
             LabeledSlider("垂直位置（預設在「指紋或上滑解鎖」上方）", st.clockY, 0.5f..0.95f) {
                 update(st.copy(clockY = it))
             }

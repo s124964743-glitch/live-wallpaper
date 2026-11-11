@@ -1,6 +1,7 @@
 package app.parallaxwall
 
 import android.app.KeyguardManager
+import android.app.WallpaperManager
 import android.content.Context
 import android.content.SharedPreferences
 import android.graphics.Canvas
@@ -20,6 +21,7 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.media.MediaPlayer
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
@@ -34,7 +36,15 @@ import kotlin.math.max
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-class ParallaxWallpaperService : WallpaperService() {
+/**
+ * 主畫面用的桌布服務。鎖定畫面用的是它的子類別 [LockWallpaperService]，
+ * 兩者在系統桌布清單裡是兩個獨立項目，所以可以分別套用到主畫面與鎖定畫面，
+ * 並各自顯示不同的素材。
+ */
+open class ParallaxWallpaperService : WallpaperService() {
+
+    /** 這個服務預設代表哪個畫面（系統若告知實際套用的畫面，以系統為準）。 */
+    protected open val slot: String get() = Store.HOME
 
     override fun onCreateEngine(): Engine = ParallaxEngine()
 
@@ -216,13 +226,36 @@ class ParallaxWallpaperService : WallpaperService() {
 
         // ───────────── 設定 / 素材切換 ─────────────
 
+        /** 這個引擎正在畫的是哪個畫面。 */
+        private fun mySlot(): String {
+            if (Build.VERSION.SDK_INT >= 31) {
+                try {
+                    when (wallpaperFlags) {
+                        WallpaperManager.FLAG_LOCK -> return Store.LOCK
+                        WallpaperManager.FLAG_SYSTEM -> return Store.HOME
+                    }
+                } catch (_: Throwable) {
+                }
+            }
+            return slot
+        }
+
+        private var loadedId: String? = null
+
         override fun onSharedPreferenceChanged(sp: SharedPreferences?, key: String?) {
             when (key) {
-                "items", "current", null -> {
+                "items", null -> {
                     main.removeCallbacks(reloadRun)
                     main.postDelayed(reloadRun, 150)
                 }
-                "lastRotate" -> {}
+                "current", "currentLock" -> {
+                    // 只有自己這個畫面的素材變了才重載
+                    if (store.currentId(mySlot()) != loadedId) {
+                        main.removeCallbacks(reloadRun)
+                        main.postDelayed(reloadRun, 150)
+                    }
+                }
+                "lastRotate", "lastRotateLock" -> {}
                 else -> {
                     st = store.settings()
                     applyVolume()
@@ -261,14 +294,17 @@ class ParallaxWallpaperService : WallpaperService() {
         private fun maybeRotate() {
             val mins = st.rotateMin
             if (mins <= 0) return
+            val s = mySlot()
+            // 鎖定畫面沒有自己指定素材時是跟隨主畫面，由主畫面負責輪播
+            if (s == Store.LOCK && store.ownId(Store.LOCK) == null) return
             val list = store.items()
             if (list.size < 2) return
             val now = System.currentTimeMillis()
-            if (now - store.lastRotate() < mins * 60_000L) return
-            val idx = list.indexOfFirst { it.id == store.currentId() }
+            if (now - store.lastRotate(s) < mins * 60_000L) return
+            val idx = list.indexOfFirst { it.id == store.currentId(s) }
             val next = list[(idx + 1).mod(list.size)]
-            store.markRotated()
-            store.setCurrent(next.id)
+            store.markRotated(s)
+            store.setCurrent(next.id, s)
         }
 
         private fun reloadNow() {
@@ -289,7 +325,9 @@ class ParallaxWallpaperService : WallpaperService() {
             mode = Mode.NONE
 
             val list = store.items()
-            val cur = list.firstOrNull { x -> x.id == store.currentId() } ?: list.firstOrNull()
+            val wantId = store.currentId(mySlot())
+            loadedId = wantId
+            val cur = list.firstOrNull { x -> x.id == wantId } ?: list.firstOrNull()
             if (cur == null || surfW == 0 || surfH == 0) {
                 updateSensor()
                 kick()

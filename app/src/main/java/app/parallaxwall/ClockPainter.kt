@@ -3,7 +3,6 @@ package app.parallaxwall
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
-import android.graphics.Typeface
 import java.util.Calendar
 
 /**
@@ -31,12 +30,6 @@ class ClockPainter {
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
-    }
-    private val glyphPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL_AND_STROKE
-        strokeJoin = Paint.Join.ROUND
-        typeface = Typeface.create("sans-serif-light", Typeface.NORMAL)
-        textAlign = Paint.Align.CENTER
     }
     private val path = Path()
     private val dotPath = Path()
@@ -73,7 +66,7 @@ class ClockPainter {
         val gapIn = 0.34f      // 同組數字之間
         val dashW = 0.30f      // 分隔圓點「•」所佔寬度
         val gapDash = 0.50f    // 圓點兩側各留一個半形空格的寬度
-        val weekW = 1.15f      // 星期字寬
+        val weekW = 1.0f       // 星期字寬：與數字同寬，並用同樣的線條畫，風格才一致
         var units = 0f
         for ((i, g) in groups.withIndex()) {
             units += if (i == 3) weekW else g.length + gapIn * (g.length - 1)
@@ -91,10 +84,9 @@ class ClockPainter {
         // 一次建好所有分段的路徑，再用各光暈層重複描邊
         path.reset()
         dotPath.reset()
-        val weekX = floatArrayOf(0f)
         for ((i, g) in groups.withIndex()) {
             if (i == 3) {
-                weekX[0] = x + d * weekW / 2f
+                addWeek(path, dow[0], x, top, d, h, t)
                 x += d * weekW
             } else {
                 for ((k, ch) in g.withIndex()) {
@@ -112,9 +104,6 @@ class ClockPainter {
             }
         }
 
-        glyphPaint.textSize = h * 0.95f
-        val baseY = cy - (glyphPaint.ascent() + glyphPaint.descent()) / 2f
-
         for (l in layers) {
             segPaint.color = l.color
             segPaint.strokeWidth = t * l.widthMul
@@ -123,10 +112,68 @@ class ClockPainter {
             // 圓點比數字線條粗一點，光暈範圍與數字相近
             segPaint.strokeWidth = t * (l.widthMul + 0.7f)
             c.drawPath(dotPath, segPaint)
+        }
+    }
 
-            glyphPaint.color = l.color
-            glyphPaint.strokeWidth = t * l.widthMul * 0.55f
-            c.drawText(dow, weekX[0], baseY, glyphPaint)
+    /** 日一二三四五六：用和數字相同的直線／斜線拼出，佔一個數字格。 */
+    private fun addWeek(p: Path, ch: Char, x0: Float, y0: Float, d: Float, h: Float, t: Float) {
+        val xl = x0 + t / 2f
+        val w = d - t
+        val yt = y0 + t / 2f
+        val hh = h - t
+
+        // 水平線：高度比例 y，左右範圍比例 a..b
+        fun hl(y: Float, a: Float, b: Float) {
+            p.moveTo(xl + w * a, yt + hh * y)
+            p.lineTo(xl + w * b, yt + hh * y)
+        }
+        // 垂直線：水平位置比例 x，上下範圍比例 a..b
+        fun vl(x: Float, a: Float, b: Float) {
+            p.moveTo(xl + w * x, yt + hh * a)
+            p.lineTo(xl + w * x, yt + hh * b)
+        }
+
+        when (ch) {
+            '一' -> hl(0.5f, 0f, 1f)
+            '二' -> {
+                hl(0.30f, 0.15f, 0.85f)
+                hl(0.72f, 0f, 1f)
+            }
+            '三' -> {
+                hl(0.10f, 0.15f, 0.85f)
+                hl(0.50f, 0.28f, 0.72f)
+                hl(0.90f, 0f, 1f)
+            }
+            '四' -> {
+                hl(0.06f, 0f, 1f)
+                hl(0.94f, 0f, 1f)
+                vl(0f, 0.06f, 0.94f)
+                vl(1f, 0.06f, 0.94f)
+                vl(0.34f, 0.40f, 0.94f)
+                vl(0.66f, 0.40f, 0.94f)
+            }
+            '五' -> {
+                hl(0.06f, 0.05f, 0.95f)
+                vl(0.38f, 0.06f, 0.94f)
+                hl(0.50f, 0.38f, 0.85f)
+                vl(0.85f, 0.50f, 0.94f)
+                hl(0.94f, 0f, 1f)
+            }
+            '六' -> {
+                vl(0.5f, 0f, 0.16f)
+                hl(0.34f, 0f, 1f)
+                p.moveTo(xl + w * 0.45f, yt + hh * 0.34f)
+                p.lineTo(xl + w * 0.05f, yt + hh)
+                p.moveTo(xl + w * 0.55f, yt + hh * 0.34f)
+                p.lineTo(xl + w * 0.95f, yt + hh)
+            }
+            else -> { // 日
+                hl(0.06f, 0.1f, 0.9f)
+                hl(0.50f, 0.1f, 0.9f)
+                hl(0.94f, 0.1f, 0.9f)
+                vl(0.1f, 0.06f, 0.94f)
+                vl(0.9f, 0.06f, 0.94f)
+            }
         }
     }
 

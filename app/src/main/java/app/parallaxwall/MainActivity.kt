@@ -354,6 +354,7 @@ fun Home() {
         Card {
             Text("影片與輪播", fontWeight = FontWeight.SemiBold)
             SwitchRow("影片靜音", st.muteVideo) { update(st.copy(muteVideo = it)) }
+            SwitchRow("影片接續播放（關閉＝每次從頭播放）", st.resumeVideo) { update(st.copy(resumeVideo = it)) }
             Text("素材輪播（亮屏時，超過間隔就換下一個）", fontSize = 13.sp, color = Color(0xFFB0B8C8))
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf(0 to "關閉", 5 to "5 分", 15 to "15 分", 30 to "30 分", 60 to "1 小時", 180 to "3 小時").forEach { (m, label) ->

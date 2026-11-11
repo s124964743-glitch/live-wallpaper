@@ -72,6 +72,7 @@ open class ParallaxWallpaperService : WallpaperService() {
         private var anim: AnimatedImageDrawable? = null
         private var player: MediaPlayer? = null
         private var playerReady = false
+        private var videoPath: String? = null
         private var swFallback = false
 
         // 影片走 OpenGL（才能疊時鐘）；GL 初始化失敗就退回 MediaPlayer 直出（無時鐘）
@@ -198,6 +199,7 @@ open class ParallaxWallpaperService : WallpaperService() {
                 maybeRotate()
                 if (playerReady) {
                     try {
+                        if (!st.resumeVideo) player?.seekTo(0)
                         player?.start()
                     } catch (_: Exception) {
                     }
@@ -211,6 +213,7 @@ open class ParallaxWallpaperService : WallpaperService() {
                 try {
                     val p = player
                     if (p != null && p.isPlaying) p.pause()
+                    savePos()
                 } catch (_: Exception) {
                 }
             }
@@ -430,6 +433,7 @@ open class ParallaxWallpaperService : WallpaperService() {
         private fun attachPlayer(file: File, surface: android.view.Surface) {
             try {
                 val mp = MediaPlayer()
+                videoPath = file.absolutePath
                 mp.setDataSource(file.absolutePath)
                 mp.setSurface(surface)
                 mp.isLooping = true
@@ -438,6 +442,7 @@ open class ParallaxWallpaperService : WallpaperService() {
                 mp.setOnVideoSizeChangedListener { _, w, h -> glv?.setVideoSize(w, h) }
                 mp.setOnPreparedListener { p ->
                     playerReady = true
+                    restorePos(p)
                     if (visible) {
                         try {
                             p.start()
@@ -461,6 +466,7 @@ open class ParallaxWallpaperService : WallpaperService() {
         private fun startVideoDirect(file: File) {
             try {
                 val mp = MediaPlayer()
+                videoPath = file.absolutePath
                 mp.setDataSource(file.absolutePath)
                 mp.setSurface(surfaceHolder.surface)
                 mp.isLooping = true
@@ -469,6 +475,7 @@ open class ParallaxWallpaperService : WallpaperService() {
                 mp.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING)
                 mp.setOnPreparedListener { p ->
                     playerReady = true
+                    restorePos(p)
                     if (visible) {
                         try {
                             p.start()
@@ -503,8 +510,27 @@ open class ParallaxWallpaperService : WallpaperService() {
             }
         }
 
+        private fun savePos() {
+            val path = videoPath ?: return
+            try {
+                val p = player ?: return
+                if (playerReady) VideoPos.map[path] = p.currentPosition
+            } catch (_: Exception) {
+            }
+        }
+
+        private fun restorePos(p: MediaPlayer) {
+            if (!st.resumeVideo) return
+            val pos = VideoPos.map[videoPath ?: return] ?: return
+            try {
+                if (pos > 0) p.seekTo(pos)
+            } catch (_: Exception) {
+            }
+        }
+
         private fun releasePlayer() {
             val p = player ?: return
+            savePos()
             player = null
             playerReady = false
             try {
@@ -718,4 +744,9 @@ open class ParallaxWallpaperService : WallpaperService() {
             c.drawRect(0f, 0f, w, h, lightPaint)
         }
     }
+}
+
+/** 記住各影片上次播放到的位置（行程內有效），供「接續播放」在畫面重建後使用。 */
+private object VideoPos {
+    val map = java.util.concurrent.ConcurrentHashMap<String, Int>()
 }

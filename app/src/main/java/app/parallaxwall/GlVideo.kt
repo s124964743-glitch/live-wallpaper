@@ -313,7 +313,8 @@ class GlVideo(
                 )
                 if (eglSurface != EGL14.EGL_NO_SURFACE) EGL14.eglDestroySurface(eglDisplay, eglSurface)
                 if (eglContext != EGL14.EGL_NO_CONTEXT) EGL14.eglDestroyContext(eglDisplay, eglContext)
-                EGL14.eglTerminate(eglDisplay)
+                // 不呼叫 eglTerminate：EGL display 是行程內共用的，
+                // 舊引擎收尾時若把它終止，會讓同時新建的引擎（或另一個畫面的引擎）整片黑掉。
             }
         } catch (_: Throwable) {
         }

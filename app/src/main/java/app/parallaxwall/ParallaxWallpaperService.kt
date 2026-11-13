@@ -197,6 +197,11 @@ open class ParallaxWallpaperService : WallpaperService() {
                 tgtX = 0f
                 tgtY = 0f
                 maybeRotate()
+                // 還沒載入成功（例如剛換桌布、載入被打斷）就重試一次
+                if (mode == Mode.NONE && surfW > 0 && surfH > 0 && !destroyed) {
+                    main.removeCallbacks(reloadRun)
+                    main.postDelayed(reloadRun, 100)
+                }
                 if (playerReady) {
                     try {
                         if (!st.resumeVideo) player?.seekTo(0)
